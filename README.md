@@ -100,5 +100,6 @@ Create your pull request for the release. Get it merged then tag the release.
 3. Shutdownhook is not there
 4. CPU memory related rejecting tasks is not there 
 5. CI doesn't have uniform runner interface for different runners. eg. K8s runner init send delegate response in java way. VM runner/Dlite/Local runner sends response to update status API
-
-
+6. Add error library for all places 
+7. implement a global context where it has all the delegate configurations
+8. local runner - it caches the pipeline config (network volumes) for a session. We should think about how to break dependencies between setup/exec/cleanup

@@ -36,9 +36,9 @@ const (
 	delegateCapacityEndpoint = "/api/agent/delegates/register-delegate-capacity/%s?accountId=%s"
 
 	// Bijou response APIs
-	setupResponseEndpoint     = "/api/executions/%s/infra-setup/%s"
-	cleanupResponseEndpoint   = "/api/executions/%s/infra-cleanup/%s"
-	executionResponseEndpoint = "/api/executions/%s/status"
+	setupResponseEndpoint     = "/api/executions/%s/infra-setup/%s?delegateId=%s&accountId=%s"
+	cleanupResponseEndpoint   = "/api/executions/%s/infra-cleanup/%s?delegateId=%s&accountId=%s"
+	executionResponseEndpoint = "/api/executions/%s/status?delegateId=%s&accountId=%s"
 )
 
 var (
@@ -235,6 +235,36 @@ func (p *HTTPClient) SendStatus(ctx context.Context, delegateID, taskID string, 
 	return err
 }
 
+// Send setup response
+func (p *HTTPClient) SendSetupResponse(ctx context.Context, delegateId, infraId, taskId string, infraSetupResponse *proto.SetupInfraResponse) error {
+	path := fmt.Sprintf(setupResponseEndpoint, taskId, infraId, delegateId, p.AccountID)
+	// Any non 2xx responses has been taken care within doProto
+	if _, err := p.doProto(ctx, path, "POST", infraSetupResponse, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *HTTPClient) SendCleanupResponse(ctx context.Context, delegateId, infraId, taskId string, cleanupResponse *proto.CleanupInfraResponse) error {
+	path := fmt.Sprintf(cleanupResponseEndpoint, taskId, infraId, delegateId, p.AccountID)
+
+	// Any non 2xx responses has been taken care within doProto
+	if _, err := p.doProto(ctx, path, "POST", cleanupResponse, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *HTTPClient) SendExecutionResponse(ctx context.Context, delegateId, taskId string, executionResponse *proto.ExecutionStatusResponse) error {
+	path := fmt.Sprintf(executionResponseEndpoint, taskId, delegateId, p.AccountID)
+
+	// Any non 2xx responses has been taken care within doProto
+	if _, err := p.doProto(ctx, path, "POST", executionResponse, nil); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (p *HTTPClient) retry(ctx context.Context, path, method string, in, out interface{}, b backoff.BackOffContext, ignoreStatusCode bool) (*http.Response, error) { //nolint: unparam
 	for {
 		res, err := p.doJson(ctx, path, method, in, out)
@@ -274,7 +304,15 @@ func (p *HTTPClient) retry(ctx context.Context, path, method string, in, out int
 }
 
 func (p *HTTPClient) doJson(ctx context.Context, path, method string, in, out interface{}) (*http.Response, error) {
-	res, body, err := p.do(ctx, path, method, in)
+	var buf = &bytes.Buffer{}
+	// marshal the input payload into json format and copy
+	// to an io.ReadCloser.
+	if in != nil {
+		if err := json.NewEncoder(buf).Encode(in); err != nil {
+			p.logger().Errorf("could not encode input payload: %s", err)
+		}
+	}
+	res, body, err := p.do(ctx, path, method, buf)
 	if err != nil {
 		return res, err
 	}
@@ -288,8 +326,15 @@ func (p *HTTPClient) doJson(ctx context.Context, path, method string, in, out in
 	return res, nil
 }
 
-func (p *HTTPClient) doProto(ctx context.Context, path, method string, in interface{}, out pb.Message) (*http.Response, error) {
-	res, body, err := p.do(ctx, path, method, in)
+func (p *HTTPClient) doProto(ctx context.Context, path, method string, in pb.Message, out pb.Message) (*http.Response, error) {
+	// marshal the input payload into proto format and copy
+	// to an io.ReadCloser.
+	input, err := pb.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	buf := bytes.NewBuffer(input)
+	res, body, err := p.do(ctx, path, method, buf)
 	if err != nil {
 		return res, err
 	}
@@ -305,19 +350,9 @@ func (p *HTTPClient) doProto(ctx context.Context, path, method string, in interf
 
 // do is a helper function that posts a signed http request with
 // the input encoded and response decoded from json.
-func (p *HTTPClient) do(ctx context.Context, path, method string, in interface{}) (*http.Response, []byte, error) {
-	var buf bytes.Buffer
-
-	// marshal the input payload into json format and copy
-	// to an io.ReadCloser.
-	if in != nil {
-		if err := json.NewEncoder(&buf).Encode(in); err != nil {
-			p.logger().Errorf("could not encode input payload: %s", err)
-		}
-	}
-
+func (p *HTTPClient) do(ctx context.Context, path, method string, in *bytes.Buffer) (*http.Response, []byte, error) {
 	endpoint := p.Endpoint + path
-	req, err := http.NewRequest(method, endpoint, &buf)
+	req, err := http.NewRequest(method, endpoint, in)
 	if err != nil {
 		return nil, nil, err
 	}

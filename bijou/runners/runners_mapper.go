@@ -1,7 +1,6 @@
 package runners
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -35,13 +34,16 @@ func NewRunnersMapper() *RunnersMapper {
 	return mapper
 }
 
+// TODO: we need to design&think about should we initialize runner at the start of delegate or at the first time of get this runner
+// They are big difference for customers. One will be 'delegate cannot start' <==> big incident. Second will be partial function not
+// available while other tasks are ok.
 func (rm *RunnersMapper) Add(runnerType string, runner Runner) {
 	rm.runners[runnerType] = runner
 }
 
 func (rm *RunnersMapper) Get(runnerType string) (Runner,error) {
 	if _, ok := rm.runners[runnerType]; !ok {
-		return nil, errors.New(fmt.Sprintf("Runner %s not found.", runnerType))
+		return nil, fmt.Errorf("Runner %s not found", runnerType)
 	}
 	return rm.runners[runnerType], nil
 }

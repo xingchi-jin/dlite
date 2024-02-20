@@ -5,9 +5,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wings-software/dlite/client"
-	"github.com/wings-software/dlite/router"
 	"github.com/wings-software/dlite/bijou/handlers"
+	"github.com/wings-software/dlite/client"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -20,14 +19,9 @@ var (
 type FilterFn func(*client.RunnerEvent) bool
 
 type EventsServer struct {
-	AccountID     string
-	AccountSecret string
-	Name          string   // name of the runner
-	Tags          []string // list of tags that the runner accepts
-	Client        client.Client
-	handlers      *handlers.HandlersMapper
-	//Router        router.Router
-	Filter        FilterFn
+	Client   client.Client
+	handlers *handlers.HandlersMapper
+	Filter   FilterFn
 	// The Harness manager allows two task acquire calls with the same delegate ID to go through (by design).
 	// We need to make sure two different threads do not acquire the same task.
 	// This map makes sure Acquire() is called only once per task ID. The mapping is removed once the status
@@ -35,29 +29,17 @@ type EventsServer struct {
 	m sync.Map
 }
 
-type DelegateInfo struct {
-	Host string
-	IP   string
-	ID   string
-	Name string
-}
-
-func New(accountID, accountSecret, name string, tags []string, c client.Client, r router.Router) *EventsServer {
+func New(c client.Client) *EventsServer {
 	return &EventsServer{
-		AccountID:     accountID,
-		AccountSecret: accountSecret,
-		Tags:          tags,
-		Name:          name,
-		Client:        c,
-		//Router:        r,
-		m:             sync.Map{},
+		Client:   c,
+		handlers: handlers.NewHandlersMapper(c),
+		m:        sync.Map{},
 	}
 }
 
 func (p *EventsServer) SetFilter(filter FilterFn) {
 	p.Filter = filter
 }
-
 
 // Poll continually asks the task server for tasks to execute. It executes the tasks by routing
 // them to the correct handler and updating the status of the task to the server.
@@ -152,6 +134,7 @@ func (p *EventsServer) executeRunnerEvent(ctx context.Context, delegateID string
 		logrus.WithField("ProcessingEventCount", i).Info("")
 		if handler := p.handlers.Get(payload.EventType); handler != nil {
 			handler.Handle(ctx, payload.RunnerType, payload)
+			logrus.Infof("[Thread %d]: successfully completed execution of taskID: %s of eventType", i, taskID, payload.EventType)
 		} else {
 			logrus.WithField("EventType", payload.EventType).Error("Cannot find handler for eventType")
 		}
@@ -169,6 +152,5 @@ func (p *EventsServer) executeRunnerEvent(ctx context.Context, delegateID string
 	// if err != nil {
 	// 	return errors.Wrap(err, "failed to send step status")
 	// }
-	logrus.Infof("[Thread %d]: successfully completed task execution of taskID: %s of type: %s", i, taskID, task.EventType)
 	return nil
 }

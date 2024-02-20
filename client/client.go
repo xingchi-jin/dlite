@@ -120,9 +120,9 @@ type Client interface {
 	RegisterCapacity(ctx context.Context, delegateID string, req *DelegateCapacity) error
 
 	// Bijou API for responses
-	SendSetupResponse(ctx context.Context, delegateID, infraId, taskId string, infraSetupResponse *proto.SetupInfraResponse)
+	SendSetupResponse(ctx context.Context, delegateID, infraId, taskId string, infraSetupResponse *proto.SetupInfraResponse) error
 
-	SendCleanupResponse(ctx context.Context, delegateID, infraId, taskId string, cleanupResponse *proto.CleanupInfraResponse)
+	SendCleanupResponse(ctx context.Context, delegateID, infraId, taskId string, cleanupResponse *proto.CleanupInfraResponse) error
 
-	SendExecutionResponse(ctx context.Context, delegateID, taskId string, executionResponse *proto.ExecutionStatusResponse)
+	SendExecutionResponse(ctx context.Context, delegateID, taskId string, executionResponse *proto.ExecutionStatusResponse) error
 }
