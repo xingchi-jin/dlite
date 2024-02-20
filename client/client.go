@@ -3,24 +3,26 @@ package client
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/wings-software/dlite/client/proto"
 )
 
 // TODO: Make the structs more generic and remove Harness specific stuff
 type (
 	// Taken from existing manager API
 	RegisterRequest struct {
-		AccountID          string   `json:"accountId,omitempty"`
-		DelegateName       string   `json:"delegateName,omitempty"`
-		Token              string   `json:"delegateRandomToken,omitempty"`
-		LastHeartbeat      int64    `json:"lastHeartBeat,omitempty"`
-		ID                 string   `json:"delegateId,omitempty"`
-		Type               string   `json:"delegateType,omitempty"`
-		NG                 bool     `json:"ng,omitempty"`
-		Polling            bool     `json:"pollingModeEnabled,omitempty"`
-		HostName           string   `json:"hostName,omitempty"`
-		Connected          bool     `json:"connected,omitempty"`
-		KeepAlivePacket    bool     `json:"keepAlivePacket,omitempty"`
-		SequenceNum        int      `json:"sequenceNum,omitempty"`
+		AccountID    string `json:"accountId,omitempty"`
+		DelegateName string `json:"delegateName,omitempty"`
+		// Token              string   `json:"delegateRandomToken,omitempty"`
+		LastHeartbeat   int64  `json:"lastHeartBeat,omitempty"`
+		ID              string `json:"delegateId,omitempty"`
+		Type            string `json:"delegateType,omitempty"`
+		NG              bool   `json:"ng,omitempty"`
+		Polling         bool   `json:"pollingModeEnabled,omitempty"`
+		HostName        string `json:"hostName,omitempty"`
+		Connected       bool   `json:"connected,omitempty"`
+		KeepAlivePacket bool   `json:"keepAlivePacket,omitempty"`
+		//SequenceNum        int      `json:"sequenceNum,omitempty"`
 		IP                 string   `json:"ip,omitempty"`
 		SupportedTaskTypes []string `json:"supportedTaskTypes,omitempty"`
 		Tags               []string `json:"tags,omitempty"`
@@ -38,6 +40,16 @@ type (
 
 	TaskEventsResponse struct {
 		TaskEvents []*TaskEvent `json:"delegateTaskEvents"`
+	}
+
+	RunnerEvent struct {
+		AccountID  string `json:"accountId"`
+		TaskID     string `json:"taskId"`
+		RunnerType string `json:"runnerType"`
+	}
+
+	RunnerEventsResponse struct {
+		RunnerEvents []*RunnerEvent `json:"delegateRunnerEvents"`
 	}
 
 	TaskEvent struct {
@@ -92,12 +104,25 @@ type Client interface {
 	// GetTaskEvents gets a list of pending tasks that need to be executed for this runner
 	GetTaskEvents(ctx context.Context, delegateID string) (*TaskEventsResponse, error)
 
+	// GetTaskEvents gets a list of pending tasks that need to be executed for this runner
+	GetRunnerEvents(ctx context.Context, delegateID string) (*RunnerEventsResponse, error)
+
 	// Acquire tells the task server that the runner is ready to execute a task ID
 	Acquire(ctx context.Context, delegateID, taskID string) (*Task, error)
+
+	// Acquire tells the task server that the runner is ready to execute a task ID
+	GetExecutionPayload(ctx context.Context, delegateID, taskID string) (*proto.AcquireTasksResponse, error)
 
 	// SendStatus sends a response to the task server for a task ID
 	SendStatus(ctx context.Context, delegateID, taskID string, req *TaskResponse) error
 
 	// Register delegate capapcity for a host for CI tasks
 	RegisterCapacity(ctx context.Context, delegateID string, req *DelegateCapacity) error
+
+	// Bijou API for responses
+	SendSetupResponse(ctx context.Context, delegateID, infraId, taskId string, infraSetupResponse *proto.SetupInfraResponse)
+
+	SendCleanupResponse(ctx context.Context, delegateID, infraId, taskId string, cleanupResponse *proto.CleanupInfraResponse)
+
+	SendExecutionResponse(ctx context.Context, delegateID, taskId string, executionResponse *proto.ExecutionStatusResponse)
 }

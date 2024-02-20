@@ -94,3 +94,11 @@ docker run -it --rm -v "$(pwd)":/usr/local/src/your-app githubchangeloggenerator
 
 Create your pull request for the release. Get it merged then tag the release.
 
+## limits
+1. It uses register call for heartbeat
+2. thread pool implementation is not abstracted
+3. Shutdownhook is not there
+4. CPU memory related rejecting tasks is not there 
+5. CI doesn't have uniform runner interface for different runners. eg. K8s runner init send delegate response in java way. VM runner/Dlite/Local runner sends response to update status API
+
+

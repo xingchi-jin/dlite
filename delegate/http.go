@@ -14,9 +14,12 @@ import (
 	"path/filepath"
 	"time"
 
+	pb "google.golang.org/protobuf/proto"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/wings-software/dlite/client"
+	"github.com/wings-software/dlite/client/proto"
 
 	"github.com/wings-software/dlite/logger"
 )
@@ -25,9 +28,17 @@ const (
 	registerEndpoint         = "/api/agent/delegates/register?accountId=%s"
 	heartbeatEndpoint        = "/api/agent/delegates/heartbeat-with-polling?accountId=%s"
 	taskPollEndpoint         = "/api/agent/delegates/%s/task-events?accountId=%s"
+	runnerEventsPollEndpoint = "/api/agent/delegates/%s/runner-events?accountId=%s"
+
 	taskAcquireEndpoint      = "/api/agent/v2/delegates/%s/tasks/%s/acquire?accountId=%s&delegateInstanceId=%s"
+	executionPayloadEndpoint = "/api/executions/%s/payload?delegateId=%s&accountId=%s&delegateInstanceId=%s"
 	taskStatusEndpoint       = "/api/agent/v2/tasks/%s/delegates/%s?accountId=%s"
 	delegateCapacityEndpoint = "/api/agent/delegates/register-delegate-capacity/%s?accountId=%s"
+
+	// Bijou response APIs
+	setupResponseEndpoint     = "/api/executions/%s/infra-setup/%s"
+	cleanupResponseEndpoint   = "/api/executions/%s/infra-cleanup/%s"
+	executionResponseEndpoint = "/api/executions/%s/status"
 )
 
 var (
@@ -160,7 +171,7 @@ func (p *HTTPClient) Register(ctx context.Context, r *client.RegisterRequest) (*
 func (p *HTTPClient) Heartbeat(ctx context.Context, r *client.RegisterRequest) error {
 	req := r
 	path := fmt.Sprintf(heartbeatEndpoint, p.AccountID)
-	_, err := p.do(ctx, path, "POST", req, nil)
+	_, err := p.doJson(ctx, path, "POST", req, nil)
 	return err
 }
 
@@ -168,7 +179,7 @@ func (p *HTTPClient) Heartbeat(ctx context.Context, r *client.RegisterRequest) e
 func (p *HTTPClient) RegisterCapacity(ctx context.Context, delID string, r *client.DelegateCapacity) error {
 	req := r
 	path := fmt.Sprintf(delegateCapacityEndpoint, delID, p.AccountID)
-	_, err := p.do(ctx, path, "POST", req, nil)
+	_, err := p.doJson(ctx, path, "POST", req, nil)
 	return err
 }
 
@@ -176,7 +187,15 @@ func (p *HTTPClient) RegisterCapacity(ctx context.Context, delID string, r *clie
 func (p *HTTPClient) GetTaskEvents(ctx context.Context, id string) (*client.TaskEventsResponse, error) {
 	path := fmt.Sprintf(taskPollEndpoint, id, p.AccountID)
 	events := &client.TaskEventsResponse{}
-	_, err := p.do(ctx, path, "GET", nil, events)
+	_, err := p.doJson(ctx, path, "GET", nil, events)
+	return events, err
+}
+
+// GetRunnerEvents gets a list of events which can be executed on this runner
+func (p *HTTPClient) GetRunnerEvents(ctx context.Context, id string) (*client.RunnerEventsResponse, error) {
+	path := fmt.Sprintf(runnerEventsPollEndpoint, id, p.AccountID)
+	events := &client.RunnerEventsResponse{}
+	_, err := p.doJson(ctx, path, "GET", nil, events)
 	return events, err
 }
 
@@ -184,13 +203,25 @@ func (p *HTTPClient) GetTaskEvents(ctx context.Context, id string) (*client.Task
 func (p *HTTPClient) Acquire(ctx context.Context, delegateID, taskID string) (*client.Task, error) {
 	path := fmt.Sprintf(taskAcquireEndpoint, delegateID, taskID, p.AccountID, delegateID)
 	task := &client.Task{}
-	_, err := p.do(ctx, path, "PUT", nil, task)
+	_, err := p.doJson(ctx, path, "PUT", nil, task)
 	return task, err
+}
+
+// Acquire tries to acquire a specific task
+func (p *HTTPClient) GetExecutionPayload(ctx context.Context, delegateID, taskID string) (*proto.AcquireTasksResponse, error) {
+	path := fmt.Sprintf(executionPayloadEndpoint, taskID, delegateID, p.AccountID, delegateID)
+	payload := &proto.AcquireTasksResponse{}
+	_, err := p.doProto(ctx, path, "GET", nil, payload)
+	if err != nil {
+		logrus.WithError(err).Error("Error making http call")
+	}
+	return payload, err
 }
 
 // SendStatus updates the status of a task
 func (p *HTTPClient) SendStatus(ctx context.Context, delegateID, taskID string, r *client.TaskResponse) error {
 	path := fmt.Sprintf(taskStatusEndpoint, taskID, delegateID, p.AccountID)
+	logrus.Info("response: ", path)
 	req := r
 	retryNumber := 0
 	var err error
@@ -206,7 +237,7 @@ func (p *HTTPClient) SendStatus(ctx context.Context, delegateID, taskID string, 
 
 func (p *HTTPClient) retry(ctx context.Context, path, method string, in, out interface{}, b backoff.BackOffContext, ignoreStatusCode bool) (*http.Response, error) { //nolint: unparam
 	for {
-		res, err := p.do(ctx, path, method, in, out)
+		res, err := p.doJson(ctx, path, method, in, out)
 		// do not retry on Canceled or DeadlineExceeded
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			p.logger().Errorf("http: context canceled")
@@ -242,9 +273,39 @@ func (p *HTTPClient) retry(ctx context.Context, path, method string, in, out int
 	}
 }
 
+func (p *HTTPClient) doJson(ctx context.Context, path, method string, in, out interface{}) (*http.Response, error) {
+	res, body, err := p.do(ctx, path, method, in)
+	if err != nil {
+		return res, err
+	}
+	if nil == out {
+		return res, nil
+	}
+	if jsonErr := json.Unmarshal(body, out); jsonErr != nil {
+		return res, jsonErr
+	}
+
+	return res, nil
+}
+
+func (p *HTTPClient) doProto(ctx context.Context, path, method string, in interface{}, out pb.Message) (*http.Response, error) {
+	res, body, err := p.do(ctx, path, method, in)
+	if err != nil {
+		return res, err
+	}
+	if nil == out {
+		return res, nil
+	}
+	if protoErr := pb.Unmarshal(body, out); protoErr != nil {
+		return res, protoErr
+	}
+
+	return res, nil
+}
+
 // do is a helper function that posts a signed http request with
 // the input encoded and response decoded from json.
-func (p *HTTPClient) do(ctx context.Context, path, method string, in, out interface{}) (*http.Response, error) {
+func (p *HTTPClient) do(ctx context.Context, path, method string, in interface{}) (*http.Response, []byte, error) {
 	var buf bytes.Buffer
 
 	// marshal the input payload into json format and copy
@@ -258,7 +319,7 @@ func (p *HTTPClient) do(ctx context.Context, path, method string, in, out interf
 	endpoint := p.Endpoint + path
 	req, err := http.NewRequest(method, endpoint, &buf)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req = req.WithContext(ctx)
 
@@ -271,7 +332,7 @@ func (p *HTTPClient) do(ctx context.Context, path, method string, in, out interf
 		token, err = p.AccountTokenCache.Get()
 		if err != nil {
 			p.logger().Errorf("could not generate account token: %s", err)
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	req.Header.Add("Authorization", "Delegate "+token)
@@ -288,40 +349,37 @@ func (p *HTTPClient) do(ctx context.Context, path, method string, in, out interf
 		}()
 	}
 	if err != nil {
-		return res, err
+		return res, nil, err
 	}
 
 	// if the response body return no content we exit
 	// immediately. We do not read or unmarshal the response
 	// and we do not return an error.
 	if res.StatusCode == 204 {
-		return res, nil
+		return res, nil, nil
 	}
 
 	// else read the response body into a byte slice.
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
-		return res, err
+		return res, nil, err
 	}
 
 	if res.StatusCode > 299 {
 		// if the response body includes an error message
 		// we should return the error string.
 		if len(body) != 0 {
-			return res, errors.New(
+			return res, body, errors.New(
 				string(body),
 			)
 		}
 		// if the response body is empty we should return
 		// the default status code text.
-		return res, errors.New(
+		return res, body, errors.New(
 			http.StatusText(res.StatusCode),
 		)
 	}
-	if out == nil {
-		return res, nil
-	}
-	return res, json.Unmarshal(body, out)
+	return res, body, nil
 }
 
 // logger is a helper function that returns the default logger
