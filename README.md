@@ -103,3 +103,6 @@ Create your pull request for the release. Get it merged then tag the release.
 6. Add error library for all places 
 7. implement a global context where it has all the delegate configurations
 8. local runner - it caches the pipeline config (network volumes) for a session. We should think about how to break dependencies between setup/exec/cleanup
+9. local runner - in setup request, logConfig, the support for indirect url should be handled differently. 
+10. local runner - ti-config is in the runner config. it should not be special cased 
+11. local runner - Handler implementations are too huge

@@ -1,0 +1,65 @@
+// Copyright 2022 Harness Inc. All rights reserved.
+// Use of this source code is governed by the PolyForm Free Trial 1.0.0 license
+// that can be found in the licenses directory at the root of this repository, also available at
+// https://polyformproject.org/wp-content/uploads/2020/05/PolyForm-Free-Trial-1.0.0.txt.
+
+syntax = "proto3";
+
+option go_package = "client/proto";
+
+package proto;
+
+option java_multiple_files = true;
+
+message DockerInfra {
+  string stage_id = 1;
+  map<string, string> env = 2;  // Any global env variables.
+  string correlation_id = 3;
+  repeated File files = 4;
+  Network network = 5;
+  repeated Volume volumes = 6;
+  string log_prefix = 8;
+  string log_token = 9;
+}
+
+message NativeInfra {
+  string stage_id = 1;
+  map<string, string> env = 2;  // Any global env variables.
+  string correlation_id = 3;
+  repeated File files = 4;
+  string log_prefix = 8;
+  string log_token = 9;
+}
+
+message File {
+  string path   = 1;  // Create a file at this path
+  uint32 mode   = 2;  // Mode of the file
+  bool isDir = 3;  // is directory
+  bytes data    = 4;  // data will be written to the file created at 'path'
+}
+
+message Network {
+  string id = 1;
+  map<string, string> labels = 2;
+  map<string, string> options = 3;
+}
+
+message Volume {
+  oneof volume {
+    EmptyDirDockerVolume empty_dir = 1;
+    HostPathDockerVolume host_path = 2;
+  }
+}
+
+message EmptyDirDockerVolume {
+  string name = 1;
+  string path = 2;
+  string size = 3;
+  string medium = 4;
+}
+
+message HostPathDockerVolume {
+  string name = 1;
+  string path = 2;
+  bool read_only = 3;
+}
