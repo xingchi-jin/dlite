@@ -19,7 +19,6 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/wings-software/dlite/client"
-	"github.com/wings-software/dlite/client/proto"
 
 	"github.com/wings-software/dlite/logger"
 )
@@ -27,18 +26,9 @@ import (
 const (
 	registerEndpoint         = "/api/agent/delegates/register?accountId=%s"
 	heartbeatEndpoint        = "/api/agent/delegates/heartbeat-with-polling?accountId=%s"
-	taskPollEndpoint         = "/api/agent/delegates/%s/task-events?accountId=%s"
-	runnerEventsPollEndpoint = "/api/agent/delegates/%s/runner-events?accountId=%s"
-
-	taskAcquireEndpoint      = "/api/agent/v2/delegates/%s/tasks/%s/acquire?accountId=%s&delegateInstanceId=%s"
-	executionPayloadEndpoint = "/api/executions/%s/payload?delegateId=%s&accountId=%s&delegateInstanceId=%s"
 	taskStatusEndpoint       = "/api/agent/v2/tasks/%s/delegates/%s?accountId=%s"
-	delegateCapacityEndpoint = "/api/agent/delegates/register-delegate-capacity/%s?accountId=%s"
-
-	// Bijou response APIs
-	setupResponseEndpoint     = "/api/executions/%s/infra-setup/%s?delegateId=%s&accountId=%s"
-	cleanupResponseEndpoint   = "/api/executions/%s/infra-cleanup/%s?delegateId=%s&accountId=%s"
-	executionResponseEndpoint = "/api/executions/%s/status?delegateId=%s&accountId=%s"
+	runnerEventsPollEndpoint = "/api/agent/delegates/%s/runner-events?accountId=%s"
+	executionPayloadEndpoint = "/api/executions/%s/payload?delegateId=%s&accountId=%s&delegateInstanceId=%s"
 )
 
 var (
@@ -175,36 +165,12 @@ func (p *HTTPClient) Heartbeat(ctx context.Context, r *client.RegisterRequest) e
 	return err
 }
 
-// RegisterCapacity registers maximum number of CI Stages that can run on the host
-func (p *HTTPClient) RegisterCapacity(ctx context.Context, delID string, r *client.DelegateCapacity) error {
-	req := r
-	path := fmt.Sprintf(delegateCapacityEndpoint, delID, p.AccountID)
-	_, err := p.doJson(ctx, path, "POST", req, nil)
-	return err
-}
-
-// GetTaskEvents gets a list of events which can be executed on this runner
-func (p *HTTPClient) GetTaskEvents(ctx context.Context, id string) (*client.TaskEventsResponse, error) {
-	path := fmt.Sprintf(taskPollEndpoint, id, p.AccountID)
-	events := &client.TaskEventsResponse{}
-	_, err := p.doJson(ctx, path, "GET", nil, events)
-	return events, err
-}
-
 // GetRunnerEvents gets a list of events which can be executed on this runner
 func (p *HTTPClient) GetRunnerEvents(ctx context.Context, id string) (*client.RunnerEventsResponse, error) {
 	path := fmt.Sprintf(runnerEventsPollEndpoint, id, p.AccountID)
 	events := &client.RunnerEventsResponse{}
 	_, err := p.doJson(ctx, path, "GET", nil, events)
 	return events, err
-}
-
-// Acquire tries to acquire a specific task
-func (p *HTTPClient) Acquire(ctx context.Context, delegateID, taskID string) (*client.Task, error) {
-	path := fmt.Sprintf(taskAcquireEndpoint, delegateID, taskID, p.AccountID, delegateID)
-	task := &client.Task{}
-	_, err := p.doJson(ctx, path, "PUT", nil, task)
-	return task, err
 }
 
 // Acquire tries to acquire a specific task
@@ -233,36 +199,6 @@ func (p *HTTPClient) SendStatus(ctx context.Context, delegateID, taskID string, 
 		retryNumber++
 	}
 	return err
-}
-
-// Send setup response
-func (p *HTTPClient) SendSetupResponse(ctx context.Context, delegateId, infraId, taskId string, infraSetupResponse *proto.SetupInfraResponse) error {
-	path := fmt.Sprintf(setupResponseEndpoint, taskId, infraId, delegateId, p.AccountID)
-	// Any non 2xx responses has been taken care within doProto
-	if _, err := p.doProto(ctx, path, "POST", infraSetupResponse, nil); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (p *HTTPClient) SendCleanupResponse(ctx context.Context, delegateId, infraId, taskId string, cleanupResponse *proto.CleanupInfraResponse) error {
-	path := fmt.Sprintf(cleanupResponseEndpoint, taskId, infraId, delegateId, p.AccountID)
-
-	// Any non 2xx responses has been taken care within doProto
-	if _, err := p.doProto(ctx, path, "POST", cleanupResponse, nil); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (p *HTTPClient) SendExecutionResponse(ctx context.Context, delegateId, taskId string, executionResponse *proto.ExecutionStatusResponse) error {
-	path := fmt.Sprintf(executionResponseEndpoint, taskId, delegateId, p.AccountID)
-
-	// Any non 2xx responses has been taken care within doProto
-	if _, err := p.doProto(ctx, path, "POST", executionResponse, nil); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (p *HTTPClient) retry(ctx context.Context, path, method string, in, out interface{}, b backoff.BackOffContext, ignoreStatusCode bool) (*http.Response, error) { //nolint: unparam

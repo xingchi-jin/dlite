@@ -1,11 +1,10 @@
-package bijou
+package poller
 
 import (
 	"context"
 	"sync"
 	"time"
 
-	"github.com/wings-software/dlite/bijou/handlers"
 	"github.com/wings-software/dlite/client"
 
 	"github.com/pkg/errors"
@@ -20,7 +19,6 @@ type FilterFn func(*client.RunnerEvent) bool
 
 type EventsServer struct {
 	Client         client.Client
-	handlers       *handlers.HandlersMapper
 	RequestsStream chan<- *client.RunnerRequest
 	Filter         FilterFn
 	// The Harness manager allows two task acquire calls with the same delegate ID to go through (by design).
@@ -34,7 +32,6 @@ func New(c client.Client, requestsChan chan<- *client.RunnerRequest) *EventsServ
 	return &EventsServer{
 		Client:         c,
 		RequestsStream: requestsChan,
-		handlers:       handlers.NewHandlersMapper(c),
 		m:              sync.Map{},
 	}
 }

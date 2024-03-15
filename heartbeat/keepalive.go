@@ -1,4 +1,4 @@
-package poller
+package heartbeat
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 
 	"github.com/icrowley/fake"
 	"github.com/wings-software/dlite/client"
-	"github.com/wings-software/dlite/router"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -25,13 +24,12 @@ var (
 
 type FilterFn func(*client.TaskEvent) bool
 
-type Poller struct {
+type KeepAlive struct {
 	AccountID     string
 	AccountSecret string
 	Name          string   // name of the runner
 	Tags          []string // list of tags that the runner accepts
 	Client        client.Client
-	Router        router.Router
 	Filter        FilterFn
 	// The Harness manager allows two task acquire calls with the same delegate ID to go through (by design).
 	// We need to make sure two different threads do not acquire the same task.
@@ -47,25 +45,24 @@ type DelegateInfo struct {
 	Name string
 }
 
-func New(accountID, accountSecret, name string, tags []string, c client.Client, r router.Router) *Poller {
-	return &Poller{
+func New(accountID, accountSecret, name string, tags []string, c client.Client) *KeepAlive {
+	return &KeepAlive{
 		AccountID:     accountID,
 		AccountSecret: accountSecret,
 		Tags:          tags,
 		Name:          name,
 		Client:        c,
-		Router:        r,
 		m:             sync.Map{},
 	}
 }
 
-func (p *Poller) SetFilter(filter FilterFn) {
+func (p *KeepAlive) SetFilter(filter FilterFn) {
 	p.Filter = filter
 }
 
 // Register registers the runner with the server. The server generates a delegate ID
 // which is returned to the client.
-func (p *Poller) Register(ctx context.Context) (*DelegateInfo, error) {
+func (p *KeepAlive) Register(ctx context.Context) (*DelegateInfo, error) {
 	host, err := os.Hostname()
 	if err != nil {
 		return nil, errors.Wrap(err, "could not get host name")
@@ -87,21 +84,20 @@ func (p *Poller) Register(ctx context.Context) (*DelegateInfo, error) {
 
 // Register registers the runner and runs a background thread which keeps pinging the server
 // at a period of interval. It returns the delegate ID.
-func (p *Poller) register(ctx context.Context, interval time.Duration, ip, host string) (string, error) {
+func (p *KeepAlive) register(ctx context.Context, interval time.Duration, ip, host string) (string, error) {
 	req := &client.RegisterRequest{
 		AccountID:     p.AccountID,
-		DelegateName:  p.Name,
+		RunnerName:    p.Name,
 		LastHeartbeat: time.Now().UnixMilli(),
 		//Token:              p.AccountSecret,
-		NG:   true,
-		Type: "DOCKER",
-		//SequenceNum:        1,
-		Polling:            true,
-		HostName:           host,
-		IP:                 ip,
-		SupportedTaskTypes: p.Router.Routes(),
-		Tags:               p.Tags,
-		HeartbeatAsObject:  true,
+		NG:       true,
+		Type:     "DOCKER",
+		Polling:  true,
+		HostName: host,
+		IP:       ip,
+		// SupportedTaskTypes: p.Router.Routes(),  // Ignore this because for new Runner tasks, this SupportedTaskTypes feature doesn't apply
+		Tags:              p.Tags,
+		HeartbeatAsObject: true,
 	}
 	resp, err := p.Client.Register(ctx, req)
 	if err != nil {
@@ -115,7 +111,7 @@ func (p *Poller) register(ctx context.Context, interval time.Duration, ip, host 
 }
 
 // heartbeat starts a periodic thread in the background which continually pings the server
-func (p *Poller) heartbeat(ctx context.Context, req *client.RegisterRequest, interval time.Duration) {
+func (p *KeepAlive) heartbeat(ctx context.Context, req *client.RegisterRequest, interval time.Duration) {
 	go func() {
 		msgDelayTimer := time.NewTimer(interval)
 		defer msgDelayTimer.Stop()
