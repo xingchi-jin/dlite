@@ -208,10 +208,10 @@ func (p *HTTPClient) Acquire(ctx context.Context, delegateID, taskID string) (*c
 }
 
 // Acquire tries to acquire a specific task
-func (p *HTTPClient) GetExecutionPayload(ctx context.Context, delegateID, taskID string) (*proto.AcquireTasksResponse, error) {
+func (p *HTTPClient) GetExecutionPayload(ctx context.Context, delegateID, taskID string) (*client.RunnerAcquiredTasks, error) {
 	path := fmt.Sprintf(executionPayloadEndpoint, taskID, delegateID, p.AccountID, delegateID)
-	payload := &proto.AcquireTasksResponse{}
-	_, err := p.doProto(ctx, path, "GET", nil, payload)
+	payload := &client.RunnerAcquiredTasks{}
+	_, err := p.doJson(ctx, path, "GET", nil, payload)
 	if err != nil {
 		logrus.WithError(err).Error("Error making http call")
 	}

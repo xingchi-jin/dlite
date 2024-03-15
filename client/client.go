@@ -46,6 +46,7 @@ type (
 		AccountID  string `json:"accountId"`
 		TaskID     string `json:"taskId"`
 		RunnerType string `json:"runnerType"`
+		TaskType   string `json:"taskType"`
 	}
 
 	RunnerEventsResponse struct {
@@ -91,6 +92,24 @@ type (
 	DelegateCapacity struct {
 		MaxBuilds int `json:"maximumNumberOfBuilds"`
 	}
+
+	RunnerAcquiredTasks struct {
+		Requests []*RunnerRequest `json:"requests"`
+	}
+
+	RunnerRequest struct {
+		TaskId    string        `json:"id"`
+		AccountId string        `json:"account_id"`
+		Task      *RunnerTask   `json:"task"`
+		Secrets   []*RunnerTask `json:"secrets"`
+	}
+
+	RunnerTask struct {
+		Type   string `json:"type"`
+		Driver string `json:"driver"`
+		Data   []byte `json:"data"`
+		Config []byte `json:"config"`
+	}
 )
 
 // Client is an interface which defines methods on interacting with a task managing system.
@@ -111,7 +130,7 @@ type Client interface {
 	Acquire(ctx context.Context, delegateID, taskID string) (*Task, error)
 
 	// Acquire tells the task server that the runner is ready to execute a task ID
-	GetExecutionPayload(ctx context.Context, delegateID, taskID string) (*proto.AcquireTasksResponse, error)
+	GetExecutionPayload(ctx context.Context, delegateID, taskID string) (*RunnerAcquiredTasks, error)
 
 	// SendStatus sends a response to the task server for a task ID
 	SendStatus(ctx context.Context, delegateID, taskID string, req *TaskResponse) error

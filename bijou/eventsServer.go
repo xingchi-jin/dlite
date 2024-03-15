@@ -19,9 +19,10 @@ var (
 type FilterFn func(*client.RunnerEvent) bool
 
 type EventsServer struct {
-	Client   client.Client
-	handlers *handlers.HandlersMapper
-	Filter   FilterFn
+	Client         client.Client
+	handlers       *handlers.HandlersMapper
+	RequestsStream chan<- *client.RunnerRequest
+	Filter         FilterFn
 	// The Harness manager allows two task acquire calls with the same delegate ID to go through (by design).
 	// We need to make sure two different threads do not acquire the same task.
 	// This map makes sure Acquire() is called only once per task ID. The mapping is removed once the status
@@ -29,11 +30,12 @@ type EventsServer struct {
 	m sync.Map
 }
 
-func New(c client.Client) *EventsServer {
+func New(c client.Client, requestsChan chan<- *client.RunnerRequest) *EventsServer {
 	return &EventsServer{
-		Client:   c,
-		handlers: handlers.NewHandlersMapper(c),
-		m:        sync.Map{},
+		Client:         c,
+		RequestsStream: requestsChan,
+		handlers:       handlers.NewHandlersMapper(c),
+		m:              sync.Map{},
 	}
 }
 
@@ -78,7 +80,7 @@ func (p *EventsServer) PollRunnerEvents(ctx context.Context, n int, id string, i
 			}
 		}
 	}()
-	// Task event executor
+	// Task event processor. Start n threads to process events from the channel
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -89,9 +91,9 @@ func (p *EventsServer) PollRunnerEvents(ctx context.Context, n int, id string, i
 					return
 				case task := <-events:
 					logrus.Info(*task)
-					err := p.executeRunnerEvent(ctx, id, *task, i)
+					err := p.queueRunnerRequest(ctx, id, *task)
 					if err != nil {
-						logrus.WithError(err).WithField("task_id", task.TaskID).Errorf("[Thread %d]: delegate [%s] could not perform task execution", i, id)
+						logrus.WithError(err).WithField("task_id", task.TaskID).Errorf("[Thread %d]: delegate [%s] could not queue runner request", i, id)
 					}
 				}
 			}
@@ -103,14 +105,15 @@ func (p *EventsServer) PollRunnerEvents(ctx context.Context, n int, id string, i
 }
 
 // execute tries to acquire the task and executes the handler for it
-func (p *EventsServer) executeRunnerEvent(ctx context.Context, delegateID string, rv client.RunnerEvent, i int) error {
+func (p *EventsServer) queueRunnerRequest(ctx context.Context, delegateID string, rv client.RunnerEvent) error {
 	taskID := rv.TaskID
 	if _, loaded := p.m.LoadOrStore(taskID, true); loaded {
 		return nil
 	}
 	defer p.m.Delete(taskID)
 	payloads, err := p.Client.GetExecutionPayload(ctx, delegateID, taskID)
-	logrus.Info(payloads)
+	logrus.Info("hey here")
+	logrus.Info(payloads.Requests)
 	if err != nil {
 		return errors.Wrap(err, "failed to get payload")
 	}
@@ -130,14 +133,17 @@ func (p *EventsServer) executeRunnerEvent(ctx context.Context, delegateID string
 	// }
 
 	// task := payload.Task[0]
-	for i, payload := range payloads.Task {
-		logrus.WithField("ProcessingEventCount", i).Info("")
-		if handler := p.handlers.Get(payload.EventType); handler != nil {
-			handler.Handle(ctx, payload.RunnerType, payload)
-			logrus.Infof("[Thread %d]: successfully completed execution of taskID: %s of eventType", i, taskID, payload.EventType)
-		} else {
-			logrus.WithField("EventType", payload.EventType).Error("Cannot find handler for eventType")
-		}
+	for i, request := range payloads.Requests {
+		logrus.WithField("Pushing requests to channel", i).Info("")
+		// to remove
+		logrus.Info(request)
+		p.RequestsStream <- request
+		// if handler := p.handlers.Get(payload.EventType); handler != nil {
+		// 	handler.Handle(ctx, payload.RunnerType, payload)
+		// 	logrus.Infof("[Thread %d]: successfully completed execution of taskID: %s of eventType", i, taskID, payload.EventType)
+		// } else {
+		// 	logrus.WithField("EventType", payload.EventType).Error("Cannot find handler for eventType")
+		// }
 	}
 
 	// writer := NewResponseWriter()
